@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lone Wolf</title>
+<style>
+:root{--bg:#1b1d3f;--panel:#262a55;--line:#3a3f78;--text:#ecebff;--muted:#9a9cc9;--moon:#bfe3ff;--gold:#ffcf5c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{max-width:480px;margin:0 auto;padding:20px 16px 48px;min-height:100vh}
+h1{font-family:Georgia,"Times New Roman",serif;font-size:3rem;margin:12px 0 4px;letter-spacing:-.02em}
+h2{font-family:Georgia,serif;font-size:1.25rem;margin:0 0 12px}
+.tag{color:var(--moon);margin:0 0 20px;font-size:1.05rem}
+.card{background:var(--panel);border-radius:14px;padding:18px;margin-bottom:16px}
+label{display:block;font-size:.9rem;color:var(--muted);margin:0 0 6px}
+input{width:100%;padding:12px 14px;border-radius:10px;border:2px solid var(--line);background:var(--bg);color:var(--text);font-size:1.05rem;margin-bottom:14px}
+input:focus-visible,button:focus-visible{outline:3px solid var(--moon);outline-offset:2px}
+.codeinput{letter-spacing:.4em;text-transform:uppercase;text-align:center;font-weight:700}
+button{width:100%;padding:13px;border-radius:10px;border:2px solid var(--moon);background:transparent;color:var(--moon);font-size:1.05rem;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--moon);color:var(--bg)}
+button.ghost{width:auto;padding:8px 14px;border-color:var(--line);color:var(--muted);font-size:.9rem}
+.or{text-align:center;color:var(--muted);margin:16px 0;font-size:.9rem}
+.err{color:#ff9a9a;margin:12px 0 0}
+.muted{color:var(--muted);margin:8px 0 14px;line-height:1.45}
+.center{text-align:center}
+.rules{margin:0;padding-left:20px;line-height:1.6}
+.bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.code{font-family:Georgia,serif;font-size:2.4rem;font-weight:700;letter-spacing:.2em}
+ul.plain{list-style:none;margin:0 0 12px;padding:0}
+.plist li{padding:10px 0;border-bottom:1px solid var(--line)}
+.score li{display:flex;justify-content:space-between;align-items:center;padding:8px 0}
+.dots{display:flex;gap:6px}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid #5a5fa0;display:block}
+.dots i.on{background:var(--gold);border-color:var(--gold)}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.num{padding:18px 0;font-family:Georgia,serif;font-size:1.6rem;border-color:#5a5fa0;color:var(--text)}
+.num:active{background:var(--moon);color:var(--bg)}
+.locked{font-size:1.2rem;margin:4px 0}
+.locked b{font-family:Georgia,serif;font-size:2rem;color:var(--gold)}
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.chip{flex:1 1 90px;background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.chip b{display:block;font-family:Georgia,serif;font-size:2rem}
+.chip span{display:block;font-size:.95rem}
+.chip em{display:block;font-style:normal;font-size:.8rem;color:var(--muted);margin-top:2px}
+.chip.tie{opacity:.55}.chip.tie b{text-decoration:line-through}
+.chip.win{border-color:var(--gold);background:#3a3358}.chip.win em{color:var(--gold)}
+.champ{border:2px solid var(--gold)}
+.banner{background:#5a3b3b;color:#ffd0d0;padding:8px 12px;border-radius:10px;margin-bottom:12px;text-align:center}
+@media (prefers-reduced-motion:no-preference){.chip{transition:transform .2s}.chip.win{transform:scale(1.04)}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const app = document.getElementById("app");
+const store = {
+  get(k){ try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k,v){ try { sessionStorage.setItem(k,v); } catch {} },
+  del(k){ try { sessionStorage.removeItem(k); } catch {} }
+};
+let ws, S = null, err = "", online = false;
+let nameVal = store.get("lw_name") || "", codeVal = "";
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function connect(){
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(proto + "://" + location.host);
+  ws.onopen = () => {
+    online = true;
+    const code = store.get("lw_code"), id = store.get("lw_id");
+    if (code && id) ws.send(JSON.stringify({type:"resume", code, id}));
+    render();
+  };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === "state") {
+      S = m; err = "";
+      store.set("lw_code", m.code); store.set("lw_id", m.you);
+    } else if (m.type === "error") {
+      err = m.message;
+      if (m.code === "resume_failed") { store.del("lw_code"); store.del("lw_id"); S = null; err = ""; }
+    }
+    render();
+  };
+  ws.onclose = () => { online = false; render(); setTimeout(connect, 1500); };
+}
+function send(o){
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
+  else { err = "Connecting to the server. Try again in a moment."; render(); }
+}
+
+const rules = () => `
+<div class="card"><h2>How to play</h2><ol class="rules">
+<li>Everyone secretly picks a number from 1 to 10.</li>
+<li>When all players have picked, the numbers are revealed together.</li>
+<li>The lowest number that only one player picked wins the round.</li>
+<li>If two or more players pick the same number, that number is out.</li>
+<li>First to 3 round wins takes the game.</li></ol></div>`;
+
+function home(){
+  return `
+<h1>Lone Wolf</h1><p class="tag">Pick the lowest number nobody else picks.</p>
+<div class="card">
+<label for="nm">Your name</label>
+<input id="nm" maxlength="14" placeholder="e.g. Sam" value="${esc(nameVal)}" autocomplete="off">
+<button class="primary" data-a="create">Create a room</button>
+<div class="or">or join a friend's room</div>
+<label for="cd">Room code</label>
+<input id="cd" class="codeinput" maxlength="4" placeholder="ABCD" value="${esc(codeVal)}" autocomplete="off">
+<button data-a="join">Join room</button>
+${err ? `<p class="err">${esc(err)}</p>` : ""}
+</div>${rules()}`;
+}
+
+function scoreboard(){
+  return `<div class="card"><h2>Score (first to ${S.target})</h2><ul class="plain score">` +
+    S.roster.map(r => `<li><span>${esc(r.name)}${r.id===S.you?" (you)":""}</span><span class="dots">` +
+      Array.from({length:S.target},(_,i)=>`<i class="${i<(S.scores[r.id]||0)?"on":""}"></i>`).join("") +
+      `</span></li>`).join("") + `</ul></div>`;
+}
+const nameOf = id => (S.roster.find(r=>r.id===id)||{}).name || "Player";
+
+function reveal(){
+  const picks = [...S.last.picks].sort((a,b)=>a.pick-b.pick);
+  const counts = {}; picks.forEach(p => counts[p.pick] = (counts[p.pick]||0)+1);
+  return `<div class="card"><h2>Round ${S.last.round} reveal</h2><div class="chips">` +
+    picks.map(p => {
+      const win = p.id === S.last.winnerId, tie = counts[p.pick] > 1;
+      return `<div class="chip ${win?"win":""} ${tie?"tie":""}"><b>${p.pick}</b><span>${esc(p.name)}</span><em>${win?"wins the round":tie?"matched":"too high"}</em></div>`;
+    }).join("") + `</div><p class="muted">` +
+    (S.last.winnerId ? `${esc(nameOf(S.last.winnerId))} had the lowest number nobody else picked.` : "Every number was matched, so nobody scores.") +
+    `</p></div>`;
+}
+
+function room(){
+  const isHost = S.host === S.you;
+  const connected = S.players.filter(p => p.connected);
+  let body = "";
+  if (S.phase === "lobby") {
+    body = `<div class="card"><h2>Waiting for players (${connected.length})</h2><ul class="plain plist">` +
+      connected.map(p => `<li>${esc(p.name)}${p.id===S.host?" · host":""}${p.id===S.you?" · you":""}</li>`).join("") +
+      `</ul><p class="muted">Friends join by opening this page and entering code <b>${esc(S.code)}</b>.</p>` +
+      (isHost ? `<button class="primary" data-a="start" ${connected.length<2?"disabled":""}>${connected.length<2?"Need 2 players to start":"Start game"}</button>`
+              : `<p class="muted">The host will start the game.</p>`) + `</div>` + rules();
+  } else if (S.phase === "picking") {
+    const waiting = S.roster.map(r => S.players.find(p=>p.id===r.id)).filter(p => p && p.connected && !p.picked).map(p => p.name);
+    body = `<div class="card"><h2>Round ${S.round}</h2>` +
+      (S.mine !== null
+        ? `<p class="locked">You picked <b>${S.mine}</b></p><p class="muted">Waiting for ${waiting.length ? esc(waiting.join(", ")) : "the reveal"}…</p>`
+        : `<p class="muted">Pick once. Nobody sees it until everyone has picked.</p><div class="grid">` +
+          Array.from({length:S.maxN},(_,i)=>`<button class="num" data-a="pick" data-n="${i+1}">${i+1}</button>`).join("") + `</div>`) +
+      `</div>` + scoreboard();
+  } else if (S.phase === "reveal") {
+    body = reveal() + scoreboard() +
+      (isHost ? `<button class="primary" data-a="next">Next round</button>` : `<p class="muted center">Waiting for the host to start the next round…</p>`);
+  } else if (S.phase === "over") {
+    body = `<div class="card champ"><h2>${esc(nameOf(S.champion))} wins the game</h2><p class="muted">${S.champion===S.you?"That was a lone wolf move.":"Better luck next game."}</p></div>` +
+      reveal() + scoreboard() +
+      (isHost ? `<button class="primary" data-a="again">Play again</button>` : `<p class="muted center">Waiting for the host to start a new game…</p>`);
+  }
+  return `<div class="bar"><div><span class="muted">Room code</span><div class="code">${esc(S.code)}</div></div><button class="ghost" data-a="leave">Leave</button></div>${body}`;
+}
+
+function render(){
+  const active = document.activeElement && document.activeElement.id;
+  app.innerHTML = (online ? "" : `<div class="banner">Reconnecting to the server…</div>`) + (S ? room() : home());
+  if (active && document.getElementById(active)) document.getElementById(active).focus();
+}
+
+document.addEventListener("input", e => {
+  if (e.target.id === "nm") { nameVal = e.target.value; store.set("lw_name", nameVal); }
+  if (e.target.id === "cd") { codeVal = e.target.value.toUpperCase(); e.target.value = codeVal; }
+});
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-a]"); if (!b) return;
+  const a = b.dataset.a;
+  if (a === "create") send({type:"create", name:nameVal});
+  if (a === "join") send({type:"join", name:nameVal, code:codeVal});
+  if (a === "start") send({type:"start"});
+  if (a === "pick") send({type:"pick", n:Number(b.dataset.n)});
+  if (a === "next") send({type:"next"});
+  if (a === "again") send({type:"again"});
+  if (a === "leave") { send({type:"leave"}); store.del("lw_code"); store.del("lw_id"); S = null; err = ""; render(); }
+});
+
+render();
+connect();
+</script>
+</body>
+</html>

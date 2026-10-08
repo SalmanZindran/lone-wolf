@@ -1,0 +1,9 @@
+{
+  "name": "lone-wolf",
+  "version": "1.0.0",
+  "description": "Lone Wolf: a real-time multiplayer number game",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" },
+  "engines": { "node": ">=18" }
+}
